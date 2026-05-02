@@ -1,0 +1,195 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#0f1117;min-height:100%}
+.wrap{padding:1.25rem;background:#0f1117;min-height:100vh;font-family:var(--font-sans)}
+.topbar{display:flex;gap:10px;align-items:center;margin-bottom:1.25rem}
+.search{flex:1;padding:9px 14px;font-size:13px;border:0.5px solid #2a2d3a;border-radius:8px;background:#181b24;color:#e2e4ed;font-family:var(--font-mono);outline:none}
+.search:focus{border-color:#444860}
+.search::placeholder{color:#4a4d60}
+.count{font-size:12px;color:#4a4d60;white-space:nowrap;font-family:var(--font-mono)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1.25rem}
+.tab{display:flex;align-items:center;gap:6px;padding:5px 12px;font-size:12px;font-weight:500;border:0.5px solid #2a2d3a;border-radius:20px;background:transparent;color:#6b6f85;cursor:pointer;transition:all 0.15s}
+.tab:hover{border-color:#444860;color:#b0b4cc}
+.tab.active{background:#1e2130;color:#e2e4ed;border-color:#444860}
+.tab .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cards-grid{display:flex;flex-direction:column;gap:5px}
+.card{background:#181b24;border:0.5px solid #2a2d3a;border-radius:10px;padding:10px 14px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px;align-items:center;cursor:pointer;transition:border-color 0.15s}
+.card:hover{border-color:#444860;background:#1e2130}
+.card.copied{border-color:#1D9E75}
+.card-left{display:flex;align-items:center;gap:10px}
+.badge{font-size:10px;font-weight:500;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.code{font-family:var(--font-mono);font-size:12px;color:#a8b0d8;word-break:break-all}
+.card.copied .code{color:#1D9E75}
+.desc{font-size:12px;color:#6b6f85;line-height:1.5}
+.copy-hint{font-size:11px;color:#2a2d3a;text-align:right;margin-top:1rem;font-family:var(--font-mono)}
+.section-header{font-size:11px;font-weight:500;letter-spacing:0.08em;margin:1.25rem 0 6px;display:flex;align-items:center;gap:8px}
+.section-header::after{content:'';flex:1;height:0.5px;background:#1e2130}
+.empty{font-size:13px;color:#3a3d52;padding:2rem;text-align:center;font-family:var(--font-mono)}
+.sr-only{color:#4a4d60}
+</style>
+<div class="wrap">
+<h2 class="sr-only">Wireshark filter cheat sheet dark mode</h2>
+<div class="topbar">
+  <input class="search" type="text" placeholder="search filters..." id="search" oninput="render()" spellcheck="false">
+  <span class="count" id="count"></span>
+</div>
+<div class="tabs" id="tabs"></div>
+<div id="content"></div>
+<p class="copy-hint">// click any card to copy filter</p>
+</div>
+<script>
+const cats=[
+  {name:"All",color:"#888780",bg:"#1e2130",tc:"#6b6f85"},
+  {name:"Basic",color:"#378ADD",bg:"#0d1a2e",tc:"#1a4a7a",
+    filters:[
+      {f:"ip.addr == 192.168.x.x",d:"All traffic to/from a specific IP"},
+      {f:"ip.src == 192.168.x.x",d:"Traffic FROM a specific IP"},
+      {f:"ip.dst == 192.168.x.x",d:"Traffic TO a specific IP"},
+      {f:"ip.addr == 192.168.x.x/24",d:"All traffic on local network"},
+      {f:"tcp.port == 80",d:"Traffic on a specific port"},
+      {f:"!ip.addr == 192.168.x.x",d:"Exclude a specific IP"},
+      {f:"ip.addr == A && ip.addr == B",d:"Traffic between two IPs"},
+    ]},
+  {name:"HTTP/S",color:"#1D9E75",bg:"#0a1f18",tc:"#0a3020",
+    filters:[
+      {f:"http",d:"All plain HTTP traffic"},
+      {f:"http.request",d:"Only HTTP requests"},
+      {f:"http.response",d:"Only HTTP responses"},
+      {f:'http.request.method == "GET"',d:"HTTP GET requests only"},
+      {f:'http.request.method == "POST"',d:"POST requests — forms, logins"},
+      {f:"http.response.code == 404",d:"404 Not Found responses"},
+      {f:"http.response.code == 200",d:"Successful responses only"},
+      {f:'http.host == "example.com"',d:"HTTP traffic to a specific host"},
+      {f:'http contains "password"',d:"Packets containing the word password"},
+      {f:"tls",d:"All HTTPS/TLS encrypted traffic"},
+      {f:"tcp.port == 443",d:"All traffic on HTTPS port"},
+      {f:"tls.handshake.type == 1",d:"TLS Client Hello — start of handshake"},
+      {f:"tls.handshake.type == 2",d:"TLS Server Hello — server response"},
+      {f:"tls.record.version == 0x0303",d:"TLS 1.2 only"},
+      {f:"tls.record.version == 0x0304",d:"TLS 1.3 only"},
+    ]},
+  {name:"DNS",color:"#EF9F27",bg:"#1f1500",tc:"#3d2800",
+    filters:[
+      {f:"dns",d:"All DNS traffic — domain lookups"},
+      {f:"dns && ip.src == 192.168.x.x",d:"DNS from a specific device"},
+      {f:"dns.qry.name",d:"Show all queried domain names"},
+      {f:'dns.qry.name contains "google"',d:"DNS queries with a keyword"},
+      {f:"dns.flags.response == 0",d:"Only DNS questions"},
+      {f:"dns.flags.response == 1",d:"Only DNS answers"},
+    ]},
+  {name:"TCP/UDP",color:"#7F77DD",bg:"#13112a",tc:"#2a2560",
+    filters:[
+      {f:"tcp",d:"All TCP traffic"},
+      {f:"udp",d:"All UDP traffic"},
+      {f:"tcp.flags.syn == 1",d:"SYN — connection attempts"},
+      {f:"tcp.flags.reset == 1",d:"RST — aborted connections"},
+      {f:"tcp.flags.fin == 1",d:"FIN — connections closing"},
+      {f:"tcp.flags.syn==1 && tcp.flags.ack==0",d:"SYN without ACK — port scan"},
+      {f:"tcp.analysis.retransmission",d:"Retransmissions — network issues"},
+      {f:"tcp.analysis.lost_segment",d:"Lost packets in stream"},
+      {f:"tcp.port == 22",d:"SSH traffic"},
+      {f:"tcp.port == 21",d:"FTP traffic"},
+      {f:"tcp.port == 25",d:"SMTP email traffic"},
+    ]},
+  {name:"Network",color:"#639922",bg:"#0e1a06",tc:"#1a3208",
+    filters:[
+      {f:"arp",d:"All ARP — discover devices"},
+      {f:"arp.opcode == 1",d:"ARP requests — who is active"},
+      {f:"arp.opcode == 2",d:"ARP replies — device responses"},
+      {f:"arp.duplicate-address-detected",d:"Detect possible ARP spoofing"},
+      {f:"icmp",d:"All ICMP — ping traffic"},
+      {f:"icmp.type == 8",d:"Ping requests only"},
+      {f:"icmp.type == 0",d:"Ping replies only"},
+      {f:"nbns",d:"NetBIOS — find Windows devices"},
+    ]},
+  {name:"WiFi",color:"#D85A30",bg:"#1f0d06",tc:"#3d1a0a",
+    filters:[
+      {f:"wlan",d:"All WiFi packets (monitor mode)"},
+      {f:"wlan.fc.type_subtype == 0x08",d:"Beacon frames — find all APs"},
+      {f:"wlan.fc.type_subtype == 4",d:"Probe requests — devices scanning"},
+      {f:"wlan.sa == xx:xx:xx:xx:xx:xx",d:"Traffic from a specific MAC"},
+      {f:"wlan && wlan.bssid == xx:xx:xx",d:"Only your router's network"},
+      {f:"tls && eth.src == xx:xx:xx:xx:xx:xx",d:"HTTPS from a specific MAC"},
+      {f:"eth.addr == xx:xx:xx:xx:xx:xx",d:"All traffic to/from a MAC"},
+    ]},
+  {name:"Security",color:"#E24B4A",bg:"#1f0808",tc:"#3d1010",
+    filters:[
+      {f:"tcp.flags.syn==1 && tcp.flags.ack==0",d:"Port scan detection"},
+      {f:"tcp.flags.reset == 1",d:"Rejected connections — suspicious"},
+      {f:"arp.duplicate-address-detected",d:"ARP spoofing / MITM attack"},
+      {f:"ip.ttl < 5",d:"Very low TTL — possible traceroute"},
+      {f:"ip.len > 1400",d:"Large packets — possible exfiltration"},
+      {f:'http contains "password"',d:"Plaintext passwords in HTTP"},
+      {f:"ftp",d:"FTP — credentials in plaintext"},
+      {f:"telnet",d:"Telnet — fully unencrypted"},
+    ]},
+];
+
+let active="All";
+
+function allFilters(){return cats.slice(1).flatMap(c=>c.filters.map(f=>({...f,cat:c})));}
+
+function render(){
+  const q=document.getElementById("search").value.toLowerCase();
+  const tabsEl=document.getElementById("tabs");
+  const contentEl=document.getElementById("content");
+
+  tabsEl.innerHTML=cats.map(c=>`
+    <button class="tab${c.name===active?' active':''}" onclick="setTab('${c.name}')">
+      <span class="dot" style="background:${c.color}"></span>${c.name}
+    </button>`).join("");
+
+  let html="",total=0;
+
+  if(active==="All"){
+    const all=allFilters().filter(f=>!q||f.f.toLowerCase().includes(q)||f.d.toLowerCase().includes(q));
+    total=all.length;
+    if(!all.length){html=`<div class="empty">// no filters match "${q}"</div>`;}
+    else{
+      const byCat={};
+      all.forEach(f=>{const k=f.cat.name;if(!byCat[k])byCat[k]={cat:f.cat,filters:[]};byCat[k].filters.push(f);});
+      for(const k in byCat){
+        const{cat,filters}=byCat[k];
+        html+=`<div class="section-header" style="color:${cat.color}60">${cat.name}</div><div class="cards-grid">`;
+        filters.forEach(f=>{html+=cardHTML(f,cat);});
+        html+=`</div>`;
+      }
+    }
+  }else{
+    const cat=cats.find(c=>c.name===active);
+    const rows=cat.filters.filter(f=>!q||f.f.toLowerCase().includes(q)||f.d.toLowerCase().includes(q));
+    total=rows.length;
+    if(!rows.length){html=`<div class="empty">// no filters match "${q}"</div>`;}
+    else{html=`<div class="cards-grid">`;rows.forEach(f=>{html+=cardHTML(f,cat);});html+=`</div>`;}
+  }
+
+  document.getElementById("count").textContent=`${total} filter${total!==1?'s':''}`;
+  contentEl.innerHTML=html;
+}
+
+function cardHTML(f,cat){
+  const safe=f.f.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  return `<div class="card" onclick="copy(this,'${safe}')">
+    <div class="card-left">
+      <span class="badge" style="background:${cat.bg};color:${cat.color};border:0.5px solid ${cat.color}30">${cat.name}</span>
+      <span class="code">${f.f}</span>
+    </div>
+    <span class="desc">${f.d}</span>
+  </div>`;
+}
+
+function setTab(name){active=name;render();}
+
+function copy(el,text){
+  navigator.clipboard.writeText(text).then(()=>{
+    el.classList.add("copied");
+    const code=el.querySelector(".code");
+    const orig=code.textContent;
+    code.textContent="// copied!";
+    setTimeout(()=>{el.classList.remove("copied");code.textContent=orig;},1200);
+  });
+}
+
+render();
+</script>
